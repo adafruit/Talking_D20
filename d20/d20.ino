@@ -57,7 +57,7 @@ static const char PROGMEM bigStringTable[] =   // play() index
   "ANNC1   " "ANNC2   " "ANNC3   "             // 20-22
   "BAD1    " "BAD2    " "BAD3    "             // 23-25
   "GOOD1   " "GOOD2   " "GOOD3   "             // 26-28
-  "STARTUP " "03ALT   ";                       // 29-30
+  "STARTUP " "03ALT   " "BATT1   " "BATT2   "; // 29-32
 
 // INITIALIZATION ----------------------------------------------------------
 
@@ -96,6 +96,8 @@ void setup(void) {
 // MAIN LOOP ---------------------------------------------------------------
 // Active when an interrupt occurs and chip is awakened...
 
+uint8_t batt = 0; // Low battery announcement counter
+
 void loop() {
   // audioOn() needs a moment to start up before anything plays,
   // stabilize() takes time anyway, so exploit that rather than delay()ing.
@@ -127,10 +129,12 @@ void loop() {
     }
   }
 
-// TO DO: battery monitoring -- what's the cutoff voltage? 
-//if(readVoltage() < 3450) {
-//  // Report low battery
-//}
+  // Estimate voltage from battery, report if low.  This is "ish" and
+  // may need work -- different regulators on 12 & 16 MHz Pro Trinkets.
+  if((readVoltage() < 3000) && !(batt++ & 1)) { // Announce on every 2nd roll
+    delay(500);
+    play(31 + random(2));
+  }
 
   audioOff();
   (void)readReg(0x16); // Clear interrupt
