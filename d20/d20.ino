@@ -103,29 +103,23 @@ void loop() {
   // stabilize() takes time anyway, so exploit that rather than delay()ing.
   audioOn();
   stabilize(250);
-//  uint8_t f = getFace();
-  uint8_t i;
+  uint8_t f = getFace();
 
-  // One of 3 random announcements
-  i = random(3);
-  play(20 + i);
-
-  // Random face 0-19 (corresponding to 1-20)
-  i = random(20);
-  if(i == 2) {        // If '3' face
-    if(!random(10)) { // 1-in-10 chance of...
-      i = 30;         // Alternate '3' track
-    }
+  if(f == 2) {              // If '3' face
+    if(!random(10)) {       // 1-in-10 chance of...
+      f = 30;               // Alternate 'face 3' track
+    }                       // LOL
   }
-  play(i);
 
-  if(i != 30) {          // If not the alt face...
-    if(i <= 3) {         // 0-3 (1-4) = bad
-      i = random(3);     // Random jab
-      play(23 + i);
-    } else if(i >= 16) { // 16-19 (17-20) = good
-      i = random(3);     // Random praise
-      play(26 + i);
+  play(20 + random(3));     // One of 3 random announcements
+
+  play(f);                  // Face #
+
+  if(f != 30) {             // If not the alt face...
+    if(f <= 3) {            // 0-3 (1-4) = bad
+      play(23 + random(3)); // Random jab
+    } else if(f >= 16) {    // 16-19 (17-20) = good
+      play(26 + random(3)); // Random praise
     }
   }
 
