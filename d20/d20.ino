@@ -102,32 +102,33 @@ void loop() {
   // audioOn() needs a moment to start up before anything plays,
   // stabilize() takes time anyway, so exploit that rather than delay()ing.
   audioOn();
-  stabilize(250);
-  uint8_t f = getFace();
-
-  if(f == 2) {              // If '3' face
-    if(!random(10)) {       // 1-in-10 chance of...
-      f = 30;               // Alternate 'face 3' track
-    }                       // LOL
-  }
-
-  play(20 + random(3));     // One of 3 random announcements
-
-  play(f);                  // Face #
-
-  if(f != 30) {             // If not the alt face...
-    if(f <= 3) {            // 0-3 (1-4) = bad
-      play(23 + random(3)); // Random jab
-    } else if(f >= 16) {    // 16-19 (17-20) = good
-      play(26 + random(3)); // Random praise
+  if(stabilize(250, 3000)) {
+    uint8_t f = getFace();
+  
+    if(f == 2) {              // If '3' face
+      if(!random(10)) {       // 1-in-10 chance of...
+        f = 30;               // Alternate 'face 3' track
+      }                       // LOL
     }
-  }
-
-  // Estimate voltage from battery, report if low.  This is "ish" and
-  // may need work -- different regulators on 12 & 16 MHz Pro Trinkets.
-  if((readVoltage() < 3000) && !(batt++ & 1)) { // Announce on every 2nd roll
-    delay(500);
-    play(31 + random(2));
+  
+    play(20 + random(3));     // One of 3 random announcements
+  
+    play(f);                  // Face #
+  
+    if(f != 30) {             // If not the alt face...
+      if(f <= 3) {            // 0-3 (1-4) = bad
+        play(23 + random(3)); // Random jab
+      } else if(f >= 16) {    // 16-19 (17-20) = good
+        play(26 + random(3)); // Random praise
+      }
+    }
+  
+    // Estimate voltage from battery, report if low.
+    // This is "ish" and may need work.
+    if((readVoltage() < 3000) && !(batt++ & 1)) { // Annc on every 2nd roll
+      delay(500);
+      play(31 + random(2));
+    }
   }
 
   audioOff();
@@ -160,78 +161,11 @@ void play(uint16_t i) {
   while(digitalRead(AUDIO_ACT) == LOW);  // Wait for sound to finish
 }
 
-// POWER-SAVING STUFF ------------------------------------------------------
-
-// Audio FX in XRESET state saves ~13 mA
-// Amplifier shutdown saves ~5 mA
-// MCU deep sleep w/peripherals off saves ~9 mA
-// Circuit in sleep state draws about 8.6 mA w/3V Pro Trinket, 10.6 mA w/5V
-// The accelerometer is not currently put into a reduced-power state;
-// docs are a bit confusing about this.  Potential power saving there looks
-// minimal, like 0.2 mA, so I'm not too worried about this.
-// Full-on, circuit playing audio peaks around 220 mA.
-
-void wait(void) {
-  writeReg(MMA8451_REG_CTRL_REG1  , 0x20); // Standby
-  writeReg(MMA8451_REG_FF_MT_CFG  , 0xB8); // X+Y+Z + latch
-  writeReg(MMA8451_REG_FF_MT_THS  , 0x02); // < 0.2G
-  writeReg(MMA8451_REG_FF_MT_COUNT, 0x06); // 6 count debounce
-  writeReg(MMA8451_REG_CTRL_REG3  , 0x08); // Freefall wake, active low
-  writeReg(MMA8451_REG_CTRL_REG4  , 0x04); // Enable interrupt
-  writeReg(MMA8451_REG_CTRL_REG5  , 0x00); // Route to I2 pin
-  uint8_t a = readReg(MMA8451_REG_CTRL_REG1) | 0x01;
-  writeReg(MMA8451_REG_CTRL_REG1, a);      // Enable
-
-  DIDR0 = 0x3F; DIDR1 = 0x03;          // Disable digital input on analog
-  power_all_disable();                 // Disable ALL AVR peripherals
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN); // Deepest sleep mode
-  sleep_enable();
-  interrupts();
-  sleep_mode();                        // Power-down MCU
-
-  // Code resumes here on interrupt.  Re-enable peripherals used by sketch:
-  power_twi_enable();    // Used by Wire lib (accelerometer)
-  Wire.begin();          // Need to re-init I2C
-  power_usart0_enable(); // Used by Serial (to Audio FX)
-  power_timer0_enable(); // Used by delay(), millis(), etc.
-}
-
-// Battery monitoring idea adapted from JeeLabs article:
-// jeelabs.org/2012/05/04/measuring-vcc-via-the-bandgap/
-// Code from Adafruit TimeSquare project.
-static uint16_t readVoltage() {
-  int      i, prev;
-  uint8_t  count;
-  uint16_t mV;
-
-  power_adc_enable();
-  ADMUX  = _BV(REFS0) |                        // AVcc voltage reference
-           _BV(MUX3)  | _BV(MUX2) | _BV(MUX1); // Bandgap (1.8V) input
-  ADCSRA = _BV(ADEN)  |             // Enable ADC
-           _BV(ADPS2) | _BV(ADPS1); // 1/64 prescaler (8 MHz -> 125 KHz)
-  // Datasheet notes that the first bandgap reading is usually garbage as
-  // voltages are stabilizing.  It practice, it seems to take a bit longer
-  // than that (perhaps due to sleep).  Tried various delays, but this was
-  // still inconsistent and kludgey.  Instead, repeated readings are taken
-  // until four concurrent readings stabilize within 10 mV.
-  for(prev=9999, count=0; count<4; ) {
-    for(ADCSRA |= _BV(ADSC); ADCSRA & _BV(ADSC); ); // Start, await ADC conv.
-    i  = ADC;                                       // Result
-    mV = i ? (1100L * 1023 / i) : 0;                // Scale to millivolts
-    if(abs((int)mV - prev) <= 10) count++;   // +1 stable reading
-    else                          count = 0; // too much change, start over
-    prev = mV;
-  }
-  ADCSRA = 0; // ADC off
-  power_adc_disable();
-  return mV;
-}
-
-// WIP STUFF ---------------------------------------------------------------
+// ACCELEROMETER STUFF -----------------------------------------------------
 
 // Waits for accelerometer output to stabilize, indicating movement stopped
-void stabilize(uint32_t ms) {
-  uint32_t prevTime;
+boolean stabilize(uint32_t ms, uint32_t timeout) {
+  uint32_t startTime, prevTime, currentTime;
   int32_t  prevX, prevY, prevZ;
   int32_t  dX, dY, dZ;
 
@@ -240,23 +174,28 @@ void stabilize(uint32_t ms) {
   prevX    = mma.x;
   prevY    = mma.y;
   prevZ    = mma.z;
-  prevTime = millis();
+  prevTime = startTime = millis();
 
-  // Then make repeated readings until orientation settles down
-  while((millis() - prevTime) < ms) {
+  // Then make repeated readings until orientation settles down.
+  // A normal roll should only take a second or two...if things do not
+  // stabilize before timeout, probably being moved or carried.
+  while(((currentTime = millis()) - startTime) < timeout) {
+    if((currentTime - prevTime) >= ms) return true; // Stable!
     mma.read();
     dX = mma.x - prevX; // X/Y/Z delta from last stable position
     dY = mma.y - prevY;
     dZ = mma.z - prevZ;
     // Compare distance.  sqrt() can be avoided by squaring distance
-    // to be compared; about 5 units on X+Y+Z axes ((5^2)*3 = 75)
-    if((dX * dX + dY * dY + dZ * dZ) >= 65536) { // Big change?
+    // to be compared; about 100 units on X+Y+Z axes ((100^2)*3 = 30K)
+    if((dX * dX + dY * dY + dZ * dZ) >= 30000) { // Big change?
       prevX    = mma.x;    // Save new position
       prevY    = mma.y;
       prevZ    = mma.z;
       prevTime = millis(); // Reset timer
     }
   }
+
+  return false; // Didn't stabilize, probably false trigger
 }
 
 // Face gravity vectors (accelerometer installed FACE DOWN)
@@ -329,4 +268,70 @@ uint8_t readReg(uint8_t reg) {
   return Wire.read();
 }
 
-// -------------------------------------------------------------------------
+// POWER-SAVING STUFF ------------------------------------------------------
+
+// Audio FX in XRESET state saves ~13 mA
+// Amplifier shutdown saves ~5 mA
+// MCU deep sleep w/peripherals off saves ~9 mA
+// Circuit in sleep state draws about 8.6 mA w/3V Pro Trinket, 10.6 mA w/5V
+// The accelerometer is not currently put into a reduced-power state;
+// docs are a bit confusing about this.  Potential power saving there looks
+// minimal, like 0.2 mA, so I'm not too worried about this.
+// Full-on, circuit playing audio peaks around 220 mA.
+
+void wait(void) {
+  writeReg(MMA8451_REG_CTRL_REG1  , 0x20); // Standby
+  writeReg(MMA8451_REG_FF_MT_CFG  , 0xB8); // X+Y+Z + latch
+  writeReg(MMA8451_REG_FF_MT_THS  , 0x02); // < 0.2G
+  writeReg(MMA8451_REG_FF_MT_COUNT, 0x05); // 5 count debounce
+  writeReg(MMA8451_REG_CTRL_REG3  , 0x08); // Freefall wake, active low
+  writeReg(MMA8451_REG_CTRL_REG4  , 0x04); // Enable interrupt
+  writeReg(MMA8451_REG_CTRL_REG5  , 0x00); // Route to I2 pin
+  uint8_t a = readReg(MMA8451_REG_CTRL_REG1) | 0x01;
+  writeReg(MMA8451_REG_CTRL_REG1, a);      // Enable
+
+  DIDR0 = 0x3F; DIDR1 = 0x03;          // Disable digital input on analog
+  power_all_disable();                 // Disable ALL AVR peripherals
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN); // Deepest sleep mode
+  sleep_enable();
+  interrupts();
+  sleep_mode();                        // Power-down MCU
+
+  // Code resumes here on interrupt.  Re-enable peripherals used by sketch:
+  power_twi_enable();    // Used by Wire lib (accelerometer)
+  Wire.begin();          // Need to re-init I2C
+  power_usart0_enable(); // Used by Serial (to Audio FX)
+  power_timer0_enable(); // Used by delay(), millis(), etc.
+}
+
+// Battery monitoring idea adapted from JeeLabs article:
+// jeelabs.org/2012/05/04/measuring-vcc-via-the-bandgap/
+// Code from Adafruit TimeSquare project.
+static uint16_t readVoltage() {
+  int      i, prev;
+  uint8_t  count;
+  uint16_t mV;
+
+  power_adc_enable();
+  ADMUX  = _BV(REFS0) |                        // AVcc voltage reference
+           _BV(MUX3)  | _BV(MUX2) | _BV(MUX1); // Bandgap (1.8V) input
+  ADCSRA = _BV(ADEN)  |             // Enable ADC
+           _BV(ADPS2) | _BV(ADPS1); // 1/64 prescaler (8 MHz -> 125 KHz)
+  // Datasheet notes that the first bandgap reading is usually garbage as
+  // voltages are stabilizing.  It practice, it seems to take a bit longer
+  // than that (perhaps due to sleep).  Tried various delays, but this was
+  // still inconsistent and kludgey.  Instead, repeated readings are taken
+  // until four concurrent readings stabilize within 10 mV.
+  for(prev=9999, count=0; count<4; ) {
+    for(ADCSRA |= _BV(ADSC); ADCSRA & _BV(ADSC); ); // Start, await ADC conv.
+    i  = ADC;                                       // Result
+    mV = i ? (1100L * 1023 / i) : 0;                // Scale to millivolts
+    if(abs((int)mV - prev) <= 10) count++;   // +1 stable reading
+    else                          count = 0; // too much change, start over
+    prev = mV;
+  }
+  ADCSRA = 0; // ADC off
+  power_adc_disable();
+  return mV;
+}
+
