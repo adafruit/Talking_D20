@@ -280,6 +280,16 @@ uint8_t readReg(uint8_t reg) {
 // Full-on, circuit playing audio peaks around 220 mA.
 
 void wait(void) {
+  // Configure the accelerometer to issue an interrupt when free-fall
+  // is detected (which we'll interpret as initiating a roll).  Free-fall
+  // detection is the same feature as used in some laptops to park spinning
+  // disks before impact.  Cool, huh?  It's REALLY good at this...can
+  // distinguish between a shake and a drop, we don't need to process a
+  // bunch of accelerometer readings...in fact the MCU is put to sleep
+  // while waiting.  Being a somewhat esoteric function, free-fall detect
+  // isn't provided in the normal Adafruit_MMA8451 library...we need to set
+  // up registers manually.  This sequence mostly comes from a Freescale
+  // application note, just tweaking thresholds slightly:
   writeReg(MMA8451_REG_CTRL_REG1  , 0x20); // Standby
   writeReg(MMA8451_REG_FF_MT_CFG  , 0xB8); // X+Y+Z + latch
   writeReg(MMA8451_REG_FF_MT_THS  , 0x02); // < 0.2G
