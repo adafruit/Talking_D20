@@ -69,6 +69,8 @@ void fail(uint16_t ms) {
   }
 }
 
+void dummyISR(void) { } // Empty ISR function to make attachInterrupt happy
+
 void setup(void) {
   pinMode(LED, OUTPUT);
   digitalWrite(LED, HIGH);         // LED on at startup
@@ -85,7 +87,7 @@ void setup(void) {
   // Configure high-to-low interrupt detect on Arduino pin 3.
   // Accelerometer will be set up to generate freefall interrupt.
   pinMode(3, INPUT_PULLUP);
-  attachInterrupt(1, NULL, FALLING);
+  attachInterrupt(1, dummyISR, FALLING);
   // 'FALLING' above refers to the interrupt signal logic level change --
   // high to low -- the fact that we're using this to sense physical
   // 'falling' is a coincidence; don't be misled by the syntax!
